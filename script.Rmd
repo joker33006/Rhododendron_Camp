@@ -1,0 +1,83 @@
+---
+title: "八通關火燒營地資料分析"
+output: html_notebook
+---
+# 研究概述
+2021年，八通關杜鵑營地大火，燒毀40多公頃的林地。本資料為研究計畫分析。
+## Step 0. loading package and creating the folder path
+```{r}
+library(data.table)
+library(ggplot2)
+library(patchwork) #arrange
+ld_path <- "E:/2021_計畫相關/2021_玉山杜鵑營地火燒/"
+sv_path <- "E:/2021_計畫相關/2021_玉山杜鵑營地火燒/result/"
+```
+## step 1.國家植群計畫舊資料分析
+預計做的分析
+1. IVI計算與樹種徑級分布
+2. 物種多樣性 
+```{r}
+rdata <- fread(paste0(ld_path,"nvdimp_subplots_with_coordinates.csv"),encoding ="UTF-8")
+rd_plt <-rdata[plotid %in% c("20-0237","20-0238","20-0248")] 
+setnames(rd_plt,"dominance","d")
+IVI_caculate <- function(data,type){ #type="d" or "c")
+  tree <- data[dtype==type]
+  tree[,d2:=d^2]
+  colnames(tree)
+  tree_dom <- tree[,.(dom=sum(d2),
+                    den=length(unique(tree_no)),
+                    feq=length(unique(paste0(subplot,zh_name)))),
+                 by=.(plotid,zh_name)]
+  to_IVI <- tree_dom[,.(to_dom=sum(dom),to_den=sum(den),to_feq=sum(feq)),by=.(plotid)]
+  IVI <- tree_dom[to_IVI,on=.(plotid=plotid)]
+  IVI[,r_dom:=dom/to_dom*100][,r_den:=den/to_den*100][,r_feq:=feq/to_feq*100]
+  if(type=="d"){
+    IVI[,ivi:=r_dom+r_den+r_feq]
+  }else{IVI[,ivi:=r_dom+r_feq]}
+write.csv(IVI,paste0(sv_path,"IVI_",type,"_result.csv"))
+}
+IVI_caculate(rd_plt,"c")
+IVI_caculate(rd_plt,"d")
+DBH_clas <- rd_plt[dtype=="d"&plotid!="20-0238"]
+DBH_a <- ggplot(DBH_clas[zh_name=="台灣二葉松",1:8],aes(x=d,color=plotid,fill=plotid))+
+  geom_histogram(aes(y=..density..),alpha=0.6, colour="black")+
+  geom_density(alpha=0.5,outline.type="both")+
+  labs(x="DBH (cm)",y="Density")+
+  theme_classic()+
+  facet_grid(~plotid)
+DBH_b <- ggplot(DBH_clas[zh_name=="紅毛杜鵑",1:8],aes(x=d,color=plotid,fill=plotid))+
+  geom_histogram(aes(y=..density..),alpha=0.6, colour="black")+
+  geom_density(alpha=0.5,outline.type="both")+
+  labs(x="DBH (cm)",y="Density")+
+  theme_classic()+
+  facet_grid(~plotid)
+DBH_c <- ggplot(DBH_clas[zh_name=="高山櫟",1:8],aes(x=d,color=plotid,fill=plotid))+
+  geom_histogram(aes(y=..density..),alpha=0.6, colour="black")+
+  geom_density(alpha=0.5,outline.type="both")+
+  labs(x="DBH (cm)",y="Density")+
+  theme_classic()+
+  facet_grid(~plotid) 
+DBH_a+DBH_b+DBH_c+
+  plot_layout(ncol = 1,guides = "collect")+
+  plot_annotation(tag_levels = 'a')
+ggsave(paste0(sv_path,"plot/DBH_class_for_major_tree.jpeg"),width=8,height=10,dpi=600)
+```
+## step 2. 氣溫與雨量資料分析
+```{r}
+p_data <- fread(paste0(ld_path,"Yushan_precipitation_1961_202110.csv"),header = TRUE)
+t_data <- fread(paste0(ld_path,"Yushan_temperature_1961_202110.csv"),header = TRUE)
+monthly_clim_fac <- function(data){
+  r <- melt(data,id.vars=c("Year"),variable.name="month")
+  return(r)
+}
+p_data <- monthly_clim_fac(p_data)
+t_data <- monthly_clim_fac(t_data)
+t_data[,Year:=as.numeric(Year)]
+p_data[,Year:=as.numeric(Year)]
+wdata <- p_data[t_data,on=.(Year=Year,month=month)]
+setnames(wdata,c("value","i.value"),c("pre","temp"))
+
+
+
+```
+
