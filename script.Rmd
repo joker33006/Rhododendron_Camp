@@ -11,15 +11,15 @@ library(ggplot2)
 library(patchwork) #arrange
 library(scales)
 library(bfast)
-ld_path <- "E:/2021_計畫相關/2021_玉山杜鵑營地火燒/"
-sv_path <- "E:/2021_計畫相關/2021_玉山杜鵑營地火燒/result/"
+ld_path <- "H:/我的雲端硬碟/研究室計畫/2021_計畫/2021_玉山杜鵑營地火燒/八通關火燒計畫/期中報告/第二次/"
+sv_path <- "H:/我的雲端硬碟/研究室計畫/2021_計畫/2021_玉山杜鵑營地火燒/八通關火燒計畫/期中報告/第二次/result/"
 ```
 ## step 1.國家植群計畫舊資料分析
 預計做的分析
 1. IVI計算與樹種徑級分布
 2. 物種多樣性 
 ```{r}
-rdata <- fread(paste0(ld_path,"nvdimp_subplots_with_coordinates.csv"),encoding ="UTF-8")
+rdata <- fread(paste0(ld_path,"/nvdimp_subplots_with_coordinates.csv"),encoding ="UTF-8")
 rd_plt <-rdata[plotid %in% c("20-0237","20-0238","20-0248")] 
 setnames(rd_plt,"dominance","d")
 IVI_caculate <- function(data,type){ #type="d" or "c")
@@ -81,11 +81,11 @@ setnames(wdata,c("value","i.value"),c("pre","temp"))
 avg_m_p <- wdata[Year %in% 1961:2010,.(pre=mean(pre),Year="1961-2010"),by=.(month)]
 plt_p_d <-rbind(avg_m_p,wdata[Year %in% 2020:2021,1:3])
 plt_p_d[Year %in% 2020:2021,date:=as.Date(paste(Year,month,"1",sep="-"))][
-  Year %in% 2020:2021,cls:="RT"]
+  Year %in% 2020:2021,cls:="RD"]
 
 his_p <- plt_p_d[Year=="1961-2010"]
 plt_p_d[Year=="1961-2010",date:=as.Date(paste(2020,month,"1",sep="-"))][
-  Year=="1961-2010",cls:="HT"]
+  Year=="1961-2010",cls:="HD"]
 plt_p_d_r <- rbind(plt_p_d,
       his_p[,date:=as.Date(paste(2021,month,"1",sep="-"))][,cls:="HT"])
 plt_p_d_r <- plt_p_d_r[-(47:48)]
@@ -112,16 +112,202 @@ fire_data[yushan_num,on=.(section=WKNG_C,no=DIST),nomatch=0]
 
 ## Step 4. NDVI數值分析
 ```{r}
-ndvi_d <- fread(paste0(ld_path,"/NDVI/NDVI_2013_2021_fire_LV1.csv"))
-colnames(ndvi_d) <- c("date","ndvi_max","ndvi_min") 
+ndvi <- fread(paste0(ld_path,"/NDVI/NDVI_tarra_fire_focus_area_2003_2022.csv"))
+
 Sys.setlocale("LC_TIME", "English") #時間設置成英文
-ndvi_d[,Date:=as.Date(date,format="%b %d, %Y")]
-ndvi_d <- ndvi_d[!is.na(ndvi_max)]
-ndvi_d[,ndvi.sm:=loess(ndvi_max~as.numeric(Date),data=ndvi_d,span=0.05)$fit]
-ndvi_d[,year:=year(Date)]
-ndvi_d[year<2021,.N,by=.(year)]
-ndvi_d[,month:=month(Date)]
-ndvi_d[,avg:=(ndvi_max+ndvi_min)/2]
+ndvi_fa[,date:=as.Date(date,format="%d-%b-%y")]
+ndvi_ea[,date:=as.Date(date,format="%d-%b-%y")]
+ndvi_t <- ndvi_fa[ndvi_ea,on=.(date=date)]
+ndvi_deal <- function(x){
+  x[,month:=month(date)]
+  x[month %in% 3:5,season:="spring"][
+      month %in% 6:8,season:="summer"][
+        month %in% 9:11,season:="autumn"][
+          is.na(season),season:="winter"]
+  x <- x[!is.na(NDVI)]
+  x[,year.s:=year(date)][month==12,year.s:=year.s+1]
+  return(x)
+}
+ndvi <- ndvi_deal(ndvi_t)
+setnames(ndvi,c("NDVI","i.NDVI"),c("NDVI_fs","NDVI_fe"))
+ndvi <- ndvi[year.s>1999]
+ndvi_s <- ndvi[,.(fs=mean(NDVI_fs),fe=mean(NDVI_fe)),by=.(year.s,season)]
+ggplot(ndvi,aes(x=date))+
+  geom_line(aes(y=NDVI_fs),color="red")+
+  geom_line(aes(y=NDVI_fe),color="blue")
+```
+
+
+## step 5. 監測樣區樹種徑級分布
+```{r}
+rdata <- fread(paste0(ld_path,"植群調查/八通關火燒自然復育監測樣區_木本資料.csv"))
+colnames(rdata)
+rdata <- rdata[!is.na(dbh)]
+rdata_dbh <- rdata[,.(dbh=sum((dbh^2)*3.14159),treeH=max(treeHeight)),
+                   by=.(fieldNumber,type,plateNumber,subplot,treeNumber,vernacularName)]
+rdata_dbh[,dbh:=(dbh/3.14159)^(1/2)]
+
+DBH <- ggplot(rdata_dbh[vernacularName=="臺灣二葉松"],aes(x=dbh,fill="red"))+
+  geom_histogram(aes(y=..density..),alpha=0.6, colour="black",binwidth=5)+
+  geom_density(alpha=0.5,outline.type="both",color="brown2")+
+  labs(x="DBH (cm)",y="Density")+
+  theme_classic()+
+  theme(legend.position="none")
+treeH <- ggplot(rdata_dbh[vernacularName=="臺灣二葉松"],aes(x=treeH))+
+  geom_histogram(aes(y=..density..),alpha=0.6,fill="cyan3",colour="black",binwidth=1)+
+  geom_density(alpha=0.5,outline.type="both",fill="cyan3",color="cyan4")+
+  labs(x="Tree height (m)",y="Density")+
+  theme_classic()+
+  theme(legend.position="none")
+
+DBH+treeH+
+  plot_layout(ncol = 2)+
+  plot_annotation(title = 'A')
+ggsave(paste0(sv_path,"plot/DBH_height_for_Pinus.jpeg"),width=8,height=3,dpi=600)
+
+#####
+DBH <- ggplot(rdata_dbh[vernacularName=="高山櫟"],aes(x=dbh,fill="red"))+
+  geom_histogram(aes(y=..density..),alpha=0.6, colour="black",binwidth=0.2)+
+  geom_density(alpha=0.5,outline.type="both",color="brown2")+
+  labs(x="DBH (cm)",y="Density")+
+  theme_classic()+
+  theme(legend.position="none")
+treeH <- ggplot(rdata_dbh[vernacularName=="高山櫟"],aes(x=treeH))+
+  geom_histogram(aes(y=..density..),alpha=0.6,fill="cyan3",colour="black",binwidth=0.2)+
+  geom_density(alpha=0.5,outline.type="both",fill="cyan3",color="cyan4")+
+  labs(x="Tree height (m)",y="Density")+
+  theme_classic()+
+  theme(legend.position="none")
+
+DBH+treeH+
+  plot_layout(ncol = 2)+
+  plot_annotation(title = 'B')
+ggsave(paste0(sv_path,"plot/DBH_height_for_Quercus.jpeg"),width=8,height=3,dpi=600)
+
+####
+#####
+#DBH <- 
+ggplot(rdata_dbh[vernacularName=="紅毛杜鵑"],aes(x=dbh,fill="red"))+
+  geom_histogram(aes(y=..density..),alpha=0.6, colour="black",binwidth=0.2)+
+  geom_density(alpha=0.5,outline.type="both",color="brown2")+
+  labs(x="DBH (cm)",y="Density")+
+  theme_classic()+
+  theme(legend.position="none")
+treeH <- ggplot(rdata_dbh[vernacularName=="紅毛杜鵑"],aes(x=treeH))+
+  geom_histogram(aes(y=..density..),alpha=0.6,fill="cyan3",colour="black",binwidth=0.2)+
+  geom_density(alpha=0.5,outline.type="both",fill="cyan3",color="cyan4")+
+  labs(x="Tree height (m)",y="Density")+
+  theme_classic()+
+  theme(legend.position="none")
+
+DBH+treeH+
+  plot_layout(ncol = 2)+
+  plot_annotation(title = 'C')
+ggsave(paste0(sv_path,"plot/DBH_height_for_Rhodendron.jpeg"),width=8,height=3,dpi=600)
+```
+
+## step 6. 健康度資料分析
+```{r}
+## 死亡率對照
+total_t <- fread(paste0(ld_path,"植群調查/total_tree.csv"))
+f_hd <- fread(paste0(ld_path,"植群調查/f_h_tree.csv"))
+s_hd <- fread(paste0(ld_path,"植群調查/s_h_tree.csv"))
+f_hd <- f_hd[!is.na(plateNumber)]
+R_1 <- f_hd[total_t,on=.(fieldNumber=fieldNumber,plateNumber=plateNumber,vernacularName=vernacularName)]
+R_2 <- s_hd[total_t,on=.(fieldNumber=fieldNumber,plateNumber=plateNumber,vernacularName=vernacularName)]
+
+write.csv(R_1,paste0(ld_path,"植群調查/tree_comp_r1.csv"))
+write.csv(R_2,paste0(ld_path,"植群調查/tree_comp_r2.csv"))
+## 其他項目比較
+sur_tree_code <- fread(paste0(ld_path,"植群調查/survive_tree.csv"))
+all_health <- fread(paste0(ld_path,"植群調查/tree_health.csv"))
+sur_h <- all_health[sur_tree_code,on=.(plateNumber=plateNumber)]
+library(ggdist)# stat_halfeye
+library(gghalves) #geom_half_point
+
+
+CD <- ggplot(sur_h[!is.na(canopyDensity)], aes(x = MC, y = canopyDensity,fill=MC,color=MC)) + 
+  stat_halfeye(
+    adjust = .5, 
+    width = .5, 
+    .width = 0,
+    alpha = .5,
+    justification = -.2, 
+    point_colour = NA
+  ) + 
+  geom_boxplot(
+    width = .05, 
+    outlier.shape = NA,
+     alpha = .5
+  ) +
+  ## add justified jitter from the {gghalves} package
+  geom_half_point(
+    ## draw jitter on the left
+    side = "l", 
+    ## control range of jitter
+    range_scale = .4, 
+    ## add some transparency
+    alpha = .5
+  )+
+  labs(x="Monitoring cycle",y="Canopy Density (%)")+
+  theme(legend.position = "none")
+
+BR <- ggplot(sur_h[!is.na(burnedRatio)], aes(x = MC, y = burnedRatio,fill=MC,color=MC)) + 
+  stat_halfeye(
+    adjust = .5, 
+    width = .5, 
+    .width = 0,
+    alpha = .5,
+    justification = -.2, 
+    point_colour = NA
+  ) + 
+  geom_boxplot(
+    width = .05, 
+    outlier.shape = NA,
+     alpha = .5
+  ) +
+  ## add justified jitter from the {gghalves} package
+  geom_half_point(
+    ## draw jitter on the left
+    side = "l", 
+    ## control range of jitter
+    range_scale = .4, 
+    ## add some transparency
+    alpha = .5
+  )+
+  labs(x="Monitoring cycle",y="Canopy dieback rate (%)")+
+  theme(legend.position = "none")
+
+LC <- ggplot(sur_h[!is.na(F3F)], aes(x = MC, y = F3F,fill=MC,color=MC)) + 
+  stat_halfeye(
+    adjust = .5, 
+    width = .5, 
+    .width = 0,
+    alpha = .5,
+    justification = -.2, 
+    point_colour = NA
+  ) + 
+  geom_boxplot(
+    width = .05, 
+    outlier.shape = NA,
+     alpha = .5
+  ) +
+  ## add justified jitter from the {gghalves} package
+  geom_half_point(
+    ## draw jitter on the left
+    side = "l", 
+    ## control range of jitter
+    range_scale = .4, 
+    ## add some transparency
+    alpha = .5
+  )+
+  labs(x="Monitoring cycle",y="Leaf health class")+
+  theme(legend.position = "none")
+
+CD+BR+LC+
+  plot_layout(ncol = 3)+
+  plot_annotation(tag_levels = 'A')
+ggsave(paste0(sv_path,"plot/Health_canopy.jpeg"),width=10,height=6,dpi=600)
 
 ```
 
