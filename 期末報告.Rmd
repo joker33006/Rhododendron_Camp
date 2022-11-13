@@ -1,0 +1,179 @@
+---
+title: "期末報告"
+output: html_notebook
+---
+概述：針對期末報告的健康度再分析
+
+# Step 0. pacakage
+```{r}
+library(data.table)
+library(ggplot2)
+library(ggpubr)
+library(patchwork)
+library(showtext)
+library(readxl)
+library(stringr)
+library(lme4)
+library(agricolae) #post hoc
+path <- "H:/我的雲端硬碟/研究室計畫/2021_計畫/2021_玉山杜鵑營地火燒/八通關火燒計畫/"
+```
+# Step 1. dataloading
+```{r}
+rd <- fread(paste0(path,"Data/ecotone_heathly.csv"))
+my_comparisons <- list(c("1st","2nd"), c("2nd", "3rd"))
+colnames(rd)
+showtext_auto()
+Cd <- ggboxplot(rd[death==0&type=="推移帶"],x="MC",y="canopyDensity",
+          width =0.5,fill="MC",alpha =0.7)+
+  theme_classic2()+
+  labs(x="Survey time",y="Canopy density(%)",fill="Survey time")+
+   stat_compare_means(comparisons = my_comparisons,group.by ="MC",
+                      aes(label = ..p.signif..))+
+    stat_compare_means(label.y = 120)
+cr_d <- ggboxplot(rd[death==0&type=="推移帶"],x="MC",y="burnedRatio",
+          width =0.5,fill="MC",alpha =0.7)+
+  theme_classic2()+
+  labs(x="Survey time",y="Crown dieback(%)",fill="Survey time")+
+   stat_compare_means(comparisons = my_comparisons,group.by ="MC",
+                      aes(label = ..p.signif..))+
+  stat_compare_means(label.y = 140)
+Cd+cr_d+ plot_layout(guides = "collect")+ plot_annotation(tag_levels = 'A')
+
+ggsave(paste0(path,"result/heathly_com.jpeg"),width=10,height = 5,dpi=600)
+
+```
+
+# Step 2. 處理鳥音資料
+
+```{r}
+f_list <- list.files(paste0(path,"Data/鳥音結果/"),pattern=".xlsx")
+
+bdt <-lapply(f_list,function(x){
+  t <- str_split(x,"_")[[1]]
+  date <- str_extract(t[1],"\\d{8}")
+  sample <- str_extract(t[2],"\\d")
+  dt_2 <-data.table(date=date,sample=sample,
+                    read_xlsx(paste0(path,"Data/鳥音結果/",x),2)) 
+  dt_1 <-data.table(date=date,sample=sample,
+                    read_xlsx(paste0(path,"Data/鳥音結果/",x),1))
+  dt_r <- list(dt_1,dt_2)
+  return(dt_r)
+})
+dt_1 <- NULL
+dt_2 <- NULL
+for (i in 1:length(bdt)){
+  dt_1 <- rbind(dt_1,bdt[[i]][[1]])
+  dt_2 <- rbind(dt_2,bdt[[i]][[2]],fill=TRUE)
+}
+write.csv(dt_1,paste0(path,"result/鳥音_ai鑑定_初步結果.csv"))
+```
+# step 3. 火燒程度判別函式
+概念：利用GLM模型，將各項火燒程度因子與樹木死亡進行判別函式建構。最後得到函式，可視為火燒傷害之分析式。並依據第一次死亡、第二次死亡以及第三次死亡等因素進行建構式。每次以存活樹木進行分析。
+
+```{r}
+dt <- fread(paste0(path,"/Data/Discriminant Analysis_raw_data.csv"))
+colnames(dt)
+dt <- dt[vernacularName %in% c("臺灣二葉松","臺灣鐵杉")]
+m1 <- glm(data=dt,
+          S1_death~dbh+TBCP+TBHP+CBP,
+          family = "binomial")
+summary(m1)$coefficients
+predict <- predict(m1, dt, type = 'response')
+table_mat <- table(dt$S1_death, predict > 0.5)
+accuracy_Test <- sum(diag(table_mat)) / sum(table_mat)
+accuracy_Test
+#### 計算model的準確率
+precision <- function(matrix) {
+	# True positive
+    tp <- matrix[2, 2]
+	# false positive
+    fp <- matrix[1, 2]
+    return (tp / (tp + fp))
+}
+recall <- function(matrix) {
+# true positive
+    tp <- matrix[2, 2]# false positive
+    fn <- matrix[2, 1]
+    return (tp / (tp + fn))
+}
+####
+prec <- precision(table_mat)
+rec <- recall(table_mat)
+f1 <- 2 * ((prec * rec) / (prec + rec))
+result <- summary(m1)$coefficients
+result <- rbind(result,accuracy_Test,f1)
+write.csv(result,paste0(path,"/result/glm_fire_s1.csv"))
+#### 利用模型反過來看樣區的樹木火燒等級分組
+dt[,pred_S1:=predict]
+aov_r<- aov(pred_S1~plotCode,data=dt)
+tuk <- HSD.test(aov_r,'plotCode')
+tuk$groups
+cls <- data.table(plotCode=rownames(tuk$groups),tuk$group)
+dt <- dt[cls, on=.(plotCode)]
+showtext_auto()
+
+ggplot(dt,aes(x=plotCode,y=pred_S1,fill=area,label=groups))+
+  geom_boxplot(alpha=0.7,width=0.5)+
+  geom_text(y=1.1,size=12)+
+  ylim(c(0,1.1))+
+  labs(x="Plot code",y="Score",fill="Area",size=38)+
+  theme(text = element_text(family = "source-han-sans-tw",size = 32))
+ggsave(paste0(path,"/result/fire_s1.jpeg"),width = 6,height=4,dpi=300)
+###### 利用S1建模的score 來看S1存活但是S2死亡，以及S2存活但是S3死亡的數值
+dt[,S2_death:=as.factor(S2_death)]
+dt[S2_death==1,s2_survive:="death"][S2_death==0,s2_survive:="living"]
+dt[S3_death==1,s3_survive:="death"][S3_death==0,s3_survive:="living"]
+S12p <- ggplot(dt[S1_death==0],aes(x=s2_survive,y=pred_S1))+
+  geom_boxplot(alpha=0.7,width=0.4,fill="#FB614E")+
+  ylim(c(0,1.1))+
+  labs(x="",y="Score",title="(A)S2",size=38)+
+  theme(text = element_text(family = "source-han-sans-tw",size = 32))
+S23p <- ggplot(dt[S2_death==0],aes(x=s3_survive,y=pred_S1))+
+  geom_boxplot(alpha=0.7,width=0.4,fill="#0ABCE8")+
+  ylim(c(0,1.1))+
+  labs(x="",y="Score",title="(B)S3",size=38)+
+  theme(text = element_text(family = "source-han-sans-tw",size = 32))
+S12p+S23p
+ggsave(paste0(path,"/result/fire_s1score_S23.jpeg"),width = 6,height=4,dpi=300)
+
+#####S2再建模
+dt2 <- dt[S1_death==0]
+m2 <- glm(data=dt2,
+          S2_death~dbh+TBCP+TBHP+CBP,
+          family = "binomial")
+summary(m2)
+predict <- predict(m2, dt2, type = 'response')
+table_mat <- table(dt2$S2_death, predict > 0.5)
+accuracy_Test <- sum(diag(table_mat)) / sum(table_mat)
+accuracy_Test
+prec <- precision(table_mat)
+prec
+rec <- recall(table_mat)
+rec
+f1 <- 2 * ((prec * rec) / (prec + rec))
+f1
+result <- summary(m2)$coefficients
+result <- rbind(result,accuracy_Test,f1)
+write.csv(result,paste0(path,"/result/glm_fire_s2.csv"))
+#####S3再建模
+dt3 <- dt[S2_death==0]
+m3 <- glm(data=dt3,
+          S3_death~dbh+TBCP+TBHP+CBP,
+          family = "binomial")
+summary(m3)
+predict <- predict(m3, dt3, type = 'response')
+table_mat <- table(dt3$S3_death, predict > 0.5)
+accuracy_Test <- sum(diag(table_mat)) / sum(table_mat)
+accuracy_Test
+prec <- precision(table_mat)
+prec
+rec <- recall(table_mat)
+rec
+f1 <- 2 * ((prec * rec) / (prec + rec))
+f1
+result <- summary(m2)$coefficients
+result <- rbind(result,accuracy_Test,f1)
+write.csv(result,paste0(path,"/result/glm_fire_s3.csv"))
+
+```
+

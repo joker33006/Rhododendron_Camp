@@ -249,7 +249,7 @@ CD <- ggplot(sur_h[!is.na(canopyDensity)], aes(x = MC, y = canopyDensity,fill=MC
     ## add some transparency
     alpha = .5
   )+
-  labs(x="Monitoring cycle",y="Canopy Density (%)")+
+  labs(x="Monitoring cycle",y="Canopy density (%)")+
   theme(legend.position = "none")
 
 BR <- ggplot(sur_h[!is.na(burnedRatio)], aes(x = MC, y = burnedRatio,fill=MC,color=MC)) + 
