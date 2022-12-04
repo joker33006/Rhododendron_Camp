@@ -171,7 +171,7 @@ rec <- recall(table_mat)
 rec
 f1 <- 2 * ((prec * rec) / (prec + rec))
 f1
-result <- summary(m2)$coefficients
+result <- summary(m3)$coefficients
 result <- rbind(result,accuracy_Test,f1)
 write.csv(result,paste0(path,"/result/glm_fire_s3.csv"))
 
